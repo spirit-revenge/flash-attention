@@ -77,3 +77,6 @@ Run the included smoke demo with:
 ```bash
 python3 test.py
 ```
+
+> [!WARNING]
+> This is a personal learning project; please do not use it for formal projects.
