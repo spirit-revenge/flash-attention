@@ -78,5 +78,5 @@ output = flash_attention.scaled_dot_product_attention_py(
 python3 test.py
 ```
 
-> [! WARNING]
+> [!WARNING]
 > 这是一个个人学习项目，请勿用于正式项目。
