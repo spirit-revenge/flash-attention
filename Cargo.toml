@@ -1,0 +1,15 @@
+[package]
+name = "flash-attention"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "flash_attention"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.22.6", features = ["extension-module"], optional = true }
+
+[features]
+default = []
+python = ["dep:pyo3"]
