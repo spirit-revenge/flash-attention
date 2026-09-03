@@ -1,15 +1,26 @@
 [package]
+# crate 名称。
 name = "flash-attention"
+# 当前版本号。
 version = "0.1.0"
+# Rust edition。这里使用 2024 语法和标准库行为。
 edition = "2024"
 
 [lib]
+# Python 扩展模块导出时使用的模块名。
+# 也就是说，最终在 Python 中导入时会使用 `import flash_attention`。
 name = "flash_attention"
+# `cdylib` 用于生成 Python 可加载的动态链接库；
+# `rlib` 则用于 Rust 库内部/外部依赖编译。
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+# 仅在启用 `python` feature 时才引入 PyO3，
+# 从而避免普通 Rust 测试和开发构建强制依赖 Python 运行时。
 pyo3 = { version = "0.22.6", features = ["extension-module"], optional = true }
 
 [features]
+# 默认不启用 Python 绑定，保证普通 Rust 构建轻量。
 default = []
+# 启用 Python 扩展构建时，打开 PyO3 依赖。
 python = ["dep:pyo3"]

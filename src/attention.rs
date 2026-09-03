@@ -2,15 +2,31 @@ use std::f32::consts::PI;
 use std::time::Instant;
 
 #[derive(Clone, Debug)]
+/// `Tensor4` 表示一个 4 维张量，布局约定为：
+/// `[batch, heads, seq, dim]`
+///
+/// 也就是说，连续存储中的一个元素位置可以被表示为：
+/// `((b * heads + h) * seq + s) * dim + d`
+///
+/// 这个布局使得同一个 batch / head 下的所有 token 和维度能够按连续内存段访问，
+/// 对注意力计算中的 Q、K、V 读取和输出写入都比较友好。
 pub struct Tensor4 {
+    /// batch 大小，表示样本数量。
     pub batch: usize,
+    /// attention head 的数量。
     pub heads: usize,
+    /// 序列长度，也就是每个样本中的 token 数量。
     pub seq: usize,
+    /// 每个 token 的特征维度。
     pub dim: usize,
+    /// 展平后的存储数据，长度为 `batch * heads * seq * dim`。
     pub data: Vec<f32>,
 }
 
 impl Tensor4 {
+    /// 创建一个指定形状的全 0 张量。
+    ///
+    /// 这是最基础的构造方式，通常用于初始化输出张量，或者创建一个空白容器。
     pub fn new(batch: usize, heads: usize, seq: usize, dim: usize) -> Self {
         Self {
             batch,
@@ -21,10 +37,15 @@ impl Tensor4 {
         }
     }
 
+    /// `zeros` 是 `new` 的语义别名，方便调用时读起来更自然。
     pub fn zeros(batch: usize, heads: usize, seq: usize, dim: usize) -> Self {
         Self::new(batch, heads, seq, dim)
     }
 
+    /// 从已存在的 `Vec<f32>` 构造张量。
+    ///
+    /// 这里会强制校验长度是否和 `(batch * heads * seq * dim)` 完全一致，
+    /// 这样可以尽早发现数据布局错误，避免后续对内存出现越界或错位访问。
     pub fn from_vec(batch: usize, heads: usize, seq: usize, dim: usize, values: Vec<f32>) -> Self {
         assert_eq!(values.len(), batch * heads * seq * dim);
         Self {
@@ -36,6 +57,10 @@ impl Tensor4 {
         }
     }
 
+    /// 根据索引生成张量值。
+    ///
+    /// 这是一个非常方便的测试和数据构造方法：
+    /// 传入一个闭包 `f(b, h, s, d)`，系统会按 `[b, h, s, d]` 的顺序填充每个元素。
     pub fn from_fn(
         batch: usize,
         heads: usize,
@@ -56,6 +81,10 @@ impl Tensor4 {
         Self::from_vec(batch, heads, seq, dim, data)
     }
 
+    /// 生成满足一定随机分布的张量。
+    ///
+    /// 这里使用 `SplitMix64` 作为随机数源，然后通过 Box-Muller 变换生成近似标准正态分布，
+    /// 这使得随机初始化更接近真实模型训练里的权重分布。
     pub fn from_random(batch: usize, heads: usize, seq: usize, dim: usize, seed: u64) -> Self {
         let mut rng = SplitMix64::new(seed);
         let total = batch * heads * seq * dim;
@@ -64,6 +93,7 @@ impl Tensor4 {
         for _ in 0..total {
             let x = rng.next_f32();
             let y = rng.next_f32();
+            // Box-Muller 变换：把均匀随机数转换成近似高斯分布
             let z = (-2.0 * x.ln()).sqrt() * (2.0 * PI * y).cos();
             data.push(z * 0.5);
         }
@@ -71,12 +101,21 @@ impl Tensor4 {
         Self::from_vec(batch, heads, seq, dim, data)
     }
 
+    /// 计算张量中的一个元素索引。
+    ///
+    /// 这是核心的内存布局函数：保证所有元素在 `Vec<f32>` 中的顺序和
+    /// `(batch, heads, seq, dim)` 的逻辑索引完全一致。
     pub fn index(&self, b: usize, h: usize, s: usize, d: usize) -> usize {
         ((b * self.heads + h) * self.seq + s) * self.dim + d
     }
 }
 
 #[derive(Clone, Copy, Debug)]
+/// `SplitMix64` 是一个简单而快速的伪随机数生成器，
+/// 它常用于生成稳定可复现的随机初始化值。
+///
+/// 这里使用它来生成 Q/K/V 的随机值，自身不依赖任何外部库，
+/// 因此适合对实现过程做可重复测试和 benchmark。
 struct SplitMix64 {
     state: u64,
 }
@@ -86,6 +125,10 @@ impl SplitMix64 {
         Self { state: seed }
     }
 
+    /// 生成下一条 64 位伪随机值。
+    ///
+    /// SplitMix64 的本质是一个线性混合器，做一些位运算和乘法混淆，
+    /// 能在保持较低实现复杂度的同时提供不错的随机性。
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E3779B97F4A7C15);
         let mut z = self.state;
@@ -94,12 +137,20 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
+    /// 将随机值转换到 `[0, 1)` 的 f32 空间。
     fn next_f32(&mut self) -> f32 {
         let value = self.next_u64() as f64;
         (value / u64::MAX as f64) as f32
     }
 }
 
+/// 计算两个长度相同的向量点积。
+///
+/// 注意力中这里用来计算 query 与 key 的相似度：
+/// `score = dot(q_i, k_j) / sqrt(dim)`
+///
+/// 这个函数通过固定 8 个元素一组的方式做分块计算，减少重复循环开销，
+/// 在不牺牲清晰度的前提下提升了简化版 CPU 向量化效果。
 fn dot_product_qk(q: &[f32], k: &[f32]) -> f32 {
     let chunks = q.len() / 8;
     let mut sum = 0.0;
@@ -125,6 +176,14 @@ fn dot_product_qk(q: &[f32], k: &[f32]) -> f32 {
     sum
 }
 
+/// 参考实现：按“逐 token 计算完整 softmax”的方式实现 attention。
+///
+/// 其逻辑是：
+/// 1. 对每个 query `i`，先计算它和所有 key `j` 的 score；
+/// 2. 对这些 score 做 softmax；
+/// 3. 用 softmax 权重对 V 做加权求和，得到输出。
+///
+/// 这个版本的优点是语义最直观，能很好地作为“正确答案”对照，实现清晰但效率较低。
 pub fn naive_attention(q: &Tensor4, k: &Tensor4, v: &Tensor4) -> Tensor4 {
     assert_eq!(q.batch, k.batch);
     assert_eq!(q.heads, k.heads);
@@ -176,6 +235,12 @@ pub fn naive_attention(q: &Tensor4, k: &Tensor4, v: &Tensor4) -> Tensor4 {
     out
 }
 
+/// 参考实现：带 causal mask 的 attention。
+///
+/// 这里要求第 `i` 个位置只能 attend 到 `0..=i` 的历史 token，
+/// 这样就能模拟 decoder-only 的自回归注意力。
+///
+/// 它和 `naive_attention` 的核心思想一致，只是 `j` 的范围被限制为 `0..=i`。
 pub fn naive_attention_causal(q: &Tensor4, k: &Tensor4, v: &Tensor4) -> Tensor4 {
     assert_eq!(q.batch, k.batch);
     assert_eq!(q.heads, k.heads);
@@ -227,6 +292,15 @@ pub fn naive_attention_causal(q: &Tensor4, k: &Tensor4, v: &Tensor4) -> Tensor4 
     out
 }
 
+/// 这是项目的核心 API：Scaled Dot-Product Attention (SDPA)。
+///
+/// 它在 `naive_attention` 的基础上做了两个关键优化：
+/// 1. 使用 `scale` 参数控制缩放；
+/// 2. 按 `block_size` 对 key/value 做分块处理，减少一次性构造大矩阵的成本。
+///
+/// 这是一种“在线 softmax”风格实现：
+/// 不是先把整个 attention 矩阵算出来再做 softmax，
+/// 而是在逐块处理时维护 `m`、`l` 和 `o`，最后得到稳定且正确的输出。
 pub fn scaled_dot_product_attention(
     q: &Tensor4,
     k: &Tensor4,
@@ -250,6 +324,10 @@ pub fn scaled_dot_product_attention(
     for b in 0..q.batch {
         for h in 0..q.heads {
             for i in 0..q.seq {
+                // 在线 softmax 的状态：
+                // m = 当前最大 logit
+                // l = 当前 softmax 分母
+                // o = 当前输出累积向量
                 let mut m = f32::NEG_INFINITY;
                 let mut l = 0.0;
                 let mut o = vec![0.0; dim];
@@ -262,6 +340,7 @@ pub fn scaled_dot_product_attention(
                     let mut block_l = 0.0;
                     let mut block_o = vec![0.0; dim];
 
+                    // 第一步：先计算当前 block 内的最大 score，便于数值稳定。
                     for j in block_start..block_end {
                         let q_base = ((b * q.heads + h) * q.seq + i) * q.dim;
                         let k_base = ((b * k.heads + h) * k.seq + j) * k.dim;
@@ -271,6 +350,8 @@ pub fn scaled_dot_product_attention(
                         }
                     }
 
+                    // 第二步：在稳定化后对每个 score 做 `exp(score - block_m)`，
+                    // 再把对应的 V 加权累加到 `block_o` 中。
                     for j in block_start..block_end {
                         let q_base = ((b * q.heads + h) * q.seq + i) * q.dim;
                         let k_base = ((b * k.heads + h) * k.seq + j) * k.dim;
@@ -284,6 +365,8 @@ pub fn scaled_dot_product_attention(
                         }
                     }
 
+                    // 使用在线 softmax 的合并规则：
+                    // 如果已有历史状态 m 和 l，向当前 block 合并时需要考虑 rescaling。
                     let new_m = m.max(block_m);
                     let alpha = if m == f32::NEG_INFINITY { 0.0 } else { (m - new_m).exp() };
                     let beta = (block_m - new_m).exp();
@@ -306,14 +389,24 @@ pub fn scaled_dot_product_attention(
     out
 }
 
+/// 提供一个更简洁的 API 入口：
+/// 这是对 `scaled_dot_product_attention` 的包装，默认表示非 causal 的标准注意力。
 pub fn flash_attention(q: &Tensor4, k: &Tensor4, v: &Tensor4, block_size: usize) -> Tensor4 {
     scaled_dot_product_attention(q, k, v, None, false, block_size)
 }
 
+/// CPU 版本的 flash_attention 包装函数。
+///
+/// 这个名字是为了更贴近“CPU 端高性能注意力”的语义，用于 Rust 侧和 demo 入口中调用。
 pub fn flash_attention_cpu(q: &Tensor4, k: &Tensor4, v: &Tensor4, block_size: usize) -> Tensor4 {
     flash_attention(q, k, v, block_size)
 }
 
+/// 生成一组更真实、更有结构的 Q/K/V 例子。
+///
+/// 这里不会简单使用全随机数据，而是在随机初始化基础上加入了索引相关的正弦/余弦模式，
+/// 这样生成的张量更接近真实模型中“各个 token 有一些特征趋势”的行为，
+/// 更利于测试_attention是否在不同 batch/head/seq 维度下保持稳定。
 pub fn make_qkv_example(batch: usize, heads: usize, seq: usize, dim: usize, seed: u64) -> (Tensor4, Tensor4, Tensor4) {
     let q = Tensor4::from_random(batch, heads, seq, dim, seed ^ 0xA5A5_A5A5_5A5A_5A5A);
     let k = Tensor4::from_random(batch, heads, seq, dim, seed ^ 0xC3C3_C3C3_3C3C_3C3C);
@@ -338,6 +431,13 @@ pub fn make_qkv_example(batch: usize, heads: usize, seq: usize, dim: usize, seed
     (q, k, v)
 }
 
+/// 用于封装 benchmark 结果的结构体。
+///
+/// 对于每个输入形状，程序会同时计算：
+/// - 朴素实现的耗时；
+/// - 分块式 flash attention 的耗时；
+/// - 两者之间的数值误差；
+/// - 是否满足正确性阈值。
 #[derive(Clone, Debug)]
 pub struct BenchmarkResult {
     pub batch: usize,
@@ -350,6 +450,12 @@ pub struct BenchmarkResult {
     pub passed: bool,
 }
 
+/// 批量 benchmark 多组输入形状。
+///
+/// `shapes` 中每个元素表示 `(batch, heads, seq, dim)`，
+/// 程序会循环执行 `iterations` 次，统计各个 shape 下的平均耗时和最大误差。
+///
+/// 这个函数主要用于验证不同维度下的数值表现是否稳定，并为后续优化提供数据基线。
 pub fn benchmark_attention_shapes(
     shapes: &[(usize, usize, usize, usize)],
     block_size: usize,
