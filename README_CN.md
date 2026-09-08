@@ -41,7 +41,7 @@ python3 -m pip install --force-reinstall target/wheels/*.whl
 
 ## 使用
 
-### Python
+### Python测试
 
 输入形状通常为 `[batch, heads, seq, dim]`，也支持 `[seq, dim]` 等低维输入。
 
