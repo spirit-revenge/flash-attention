@@ -1,4 +1,9 @@
 pub mod attention;
+pub mod cpu_opt;
+
+/// macOS Metal GPU backend (enabled with `--features metal`).
+#[cfg(all(feature = "metal", target_os = "macos"))]
+pub mod gpu;
 
 #[cfg(feature = "python")]
 // PyO3 负责把 Rust 代码暴露成 Python 可调用模块。
@@ -13,9 +18,12 @@ use pyo3::wrap_pyfunction;
 
 // 公开导出由 attention 模块提供的核心 API，方便外部 Rust 用户直接使用。
 pub use attention::{
-    benchmark_attention_shapes, flash_attention as flash_attention_impl,
+    BenchmarkResult, Tensor4, benchmark_attention_shapes, flash_attention as flash_attention_impl,
     flash_attention_cpu, make_qkv_example, naive_attention, scaled_dot_product_attention,
-    BenchmarkResult, Tensor4,
+};
+pub use cpu_opt::{
+    flash_attention_parallel, naive_attention_parallel, scaled_dot_product_attention_cached,
+    scaled_dot_product_attention_parallel,
 };
 
 #[cfg(feature = "python")]
@@ -36,7 +44,10 @@ fn normalize_shape(shape: &[usize]) -> (usize, usize, usize, usize) {
         [seq, dim] => (1, 1, *seq, *dim),
         [batch, seq, dim] => (*batch, 1, *seq, *dim),
         [batch, heads, seq, dim] => (*batch, *heads, *seq, *dim),
-        _ => panic!("attention arrays must have rank 1..=4; got shape {:?}", shape),
+        _ => panic!(
+            "attention arrays must have rank 1..=4; got shape {:?}",
+            shape
+        ),
     }
 }
 
@@ -64,7 +75,10 @@ fn nested_to_flat_and_shape(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<usize>, Vec
     if let Ok(values) = obj.extract::<Vec<Vec<Vec<f32>>>>() {
         let batch = values.len();
         let seq = values.first().map_or(0, |row| row.len());
-        let dim = values.first().and_then(|row| row.first()).map_or(0, |x| x.len());
+        let dim = values
+            .first()
+            .and_then(|row| row.first())
+            .map_or(0, |x| x.len());
         let mut flat = Vec::with_capacity(batch * seq * dim);
         for b in values {
             for s in b {
@@ -77,7 +91,10 @@ fn nested_to_flat_and_shape(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<usize>, Vec
     if let Ok(values) = obj.extract::<Vec<Vec<Vec<Vec<f32>>>>>() {
         let batch = values.len();
         let heads = values.first().map_or(0, |row| row.len());
-        let seq = values.first().and_then(|row| row.first()).map_or(0, |x| x.len());
+        let seq = values
+            .first()
+            .and_then(|row| row.first())
+            .map_or(0, |x| x.len());
         let dim = values
             .first()
             .and_then(|row| row.first())
@@ -116,7 +133,9 @@ fn nested_to_flat_and_shape(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<usize>, Vec
 /// 这样 Python 侧不需要手动再重构 shape，调用体验更接近 NumPy。
 fn tensor4_to_python_nested(py: Python<'_>, out: &Tensor4, shape: &[usize]) -> PyResult<PyObject> {
     match shape {
-        [dim] => Ok(PyList::new_bound(py, out.data[..*dim].iter().copied()).into_any().unbind()),
+        [dim] => Ok(PyList::new_bound(py, out.data[..*dim].iter().copied())
+            .into_any()
+            .unbind()),
         [seq, dim] => {
             let mut rows = Vec::with_capacity(*seq);
             for s in 0..*seq {

@@ -1,0 +1,6 @@
+item,value_ms,note
+device_and_queue,30.0751,GpuAttention::new (device + command queue)
+shader_compile_d64,71.6523,MSL compile + 4 compute pipelines
+shader_compile_d128,40.8965,MSL compile + 4 compute pipelines
+first_call_d64,41.1054,includes MSL compile + pipeline creation
+second_call_d64,0.7795,warm end-to-end

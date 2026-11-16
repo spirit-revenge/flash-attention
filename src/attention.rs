@@ -204,7 +204,10 @@ pub fn naive_attention(q: &Tensor4, k: &Tensor4, v: &Tensor4) -> Tensor4 {
                 for j in 0..k.seq {
                     let q_base = ((b * q.heads + h) * q.seq + i) * q.dim;
                     let k_base = ((b * k.heads + h) * k.seq + j) * k.dim;
-                    let score = dot_product_qk(&q.data[q_base..q_base + q.dim], &k.data[k_base..k_base + k.dim]) * scale;
+                    let score = dot_product_qk(
+                        &q.data[q_base..q_base + q.dim],
+                        &k.data[k_base..k_base + k.dim],
+                    ) * scale;
                     scores[j] = score;
                     if score > max_score {
                         max_score = score;
@@ -261,7 +264,10 @@ pub fn naive_attention_causal(q: &Tensor4, k: &Tensor4, v: &Tensor4) -> Tensor4 
                 for j in 0..=i {
                     let q_base = ((b * q.heads + h) * q.seq + i) * q.dim;
                     let k_base = ((b * k.heads + h) * k.seq + j) * k.dim;
-                    let score = dot_product_qk(&q.data[q_base..q_base + q.dim], &k.data[k_base..k_base + k.dim]) * scale;
+                    let score = dot_product_qk(
+                        &q.data[q_base..q_base + q.dim],
+                        &k.data[k_base..k_base + k.dim],
+                    ) * scale;
                     scores[j] = score;
                     if score > max_score {
                         max_score = score;
@@ -344,7 +350,10 @@ pub fn scaled_dot_product_attention(
                     for j in block_start..block_end {
                         let q_base = ((b * q.heads + h) * q.seq + i) * q.dim;
                         let k_base = ((b * k.heads + h) * k.seq + j) * k.dim;
-                        let score = dot_product_qk(&q.data[q_base..q_base + q.dim], &k.data[k_base..k_base + k.dim]) * scale;
+                        let score = dot_product_qk(
+                            &q.data[q_base..q_base + q.dim],
+                            &k.data[k_base..k_base + k.dim],
+                        ) * scale;
                         if score > block_m {
                             block_m = score;
                         }
@@ -355,7 +364,10 @@ pub fn scaled_dot_product_attention(
                     for j in block_start..block_end {
                         let q_base = ((b * q.heads + h) * q.seq + i) * q.dim;
                         let k_base = ((b * k.heads + h) * k.seq + j) * k.dim;
-                        let score = dot_product_qk(&q.data[q_base..q_base + q.dim], &k.data[k_base..k_base + k.dim]) * scale;
+                        let score = dot_product_qk(
+                            &q.data[q_base..q_base + q.dim],
+                            &k.data[k_base..k_base + k.dim],
+                        ) * scale;
                         let exp_score = (score - block_m).exp();
                         block_l += exp_score;
 
@@ -368,7 +380,11 @@ pub fn scaled_dot_product_attention(
                     // 使用在线 softmax 的合并规则：
                     // 如果已有历史状态 m 和 l，向当前 block 合并时需要考虑 rescaling。
                     let new_m = m.max(block_m);
-                    let alpha = if m == f32::NEG_INFINITY { 0.0 } else { (m - new_m).exp() };
+                    let alpha = if m == f32::NEG_INFINITY {
+                        0.0
+                    } else {
+                        (m - new_m).exp()
+                    };
                     let beta = (block_m - new_m).exp();
 
                     for d in 0..dim {
@@ -407,24 +423,33 @@ pub fn flash_attention_cpu(q: &Tensor4, k: &Tensor4, v: &Tensor4, block_size: us
 /// 这里不会简单使用全随机数据，而是在随机初始化基础上加入了索引相关的正弦/余弦模式，
 /// 这样生成的张量更接近真实模型中“各个 token 有一些特征趋势”的行为，
 /// 更利于测试_attention是否在不同 batch/head/seq 维度下保持稳定。
-pub fn make_qkv_example(batch: usize, heads: usize, seq: usize, dim: usize, seed: u64) -> (Tensor4, Tensor4, Tensor4) {
+pub fn make_qkv_example(
+    batch: usize,
+    heads: usize,
+    seq: usize,
+    dim: usize,
+    seed: u64,
+) -> (Tensor4, Tensor4, Tensor4) {
     let q = Tensor4::from_random(batch, heads, seq, dim, seed ^ 0xA5A5_A5A5_5A5A_5A5A);
     let k = Tensor4::from_random(batch, heads, seq, dim, seed ^ 0xC3C3_C3C3_3C3C_3C3C);
     let v = Tensor4::from_random(batch, heads, seq, dim, seed ^ 0xD1D1_D1D1_1D1D_1D1D);
 
     let q = Tensor4::from_fn(batch, heads, seq, dim, |b, h, s, d| {
         let base = q.data[q.index(b, h, s, d)];
-        let pattern = ((b + 1) as f32 * (h + 1) as f32 * (s + 1) as f32 * (d + 1) as f32 * 0.17).sin();
+        let pattern =
+            ((b + 1) as f32 * (h + 1) as f32 * (s + 1) as f32 * (d + 1) as f32 * 0.17).sin();
         base * 0.8 + pattern * 0.5
     });
     let k = Tensor4::from_fn(batch, heads, seq, dim, |b, h, s, d| {
         let base = k.data[k.index(b, h, s, d)];
-        let pattern = ((b + 1) as f32 * (h + 2) as f32 * (s + 3) as f32 * (d + 2) as f32 * 0.19).cos();
+        let pattern =
+            ((b + 1) as f32 * (h + 2) as f32 * (s + 3) as f32 * (d + 2) as f32 * 0.19).cos();
         base * 0.85 + pattern * 0.4
     });
     let v = Tensor4::from_fn(batch, heads, seq, dim, |b, h, s, d| {
         let base = v.data[v.index(b, h, s, d)];
-        let pattern = ((b + 2) as f32 * (h + 3) as f32 * (s + 4) as f32 * (d + 1) as f32 * 0.12).sin();
+        let pattern =
+            ((b + 2) as f32 * (h + 3) as f32 * (s + 4) as f32 * (d + 1) as f32 * 0.12).sin();
         (base + 1.0) * 0.5 + pattern * 0.3
     });
 
@@ -506,8 +531,8 @@ pub fn benchmark_attention_shapes(
 #[cfg(test)]
 mod tests {
     use super::{
-        benchmark_attention_shapes, flash_attention, make_qkv_example, naive_attention,
-        naive_attention_causal, scaled_dot_product_attention, Tensor4,
+        Tensor4, benchmark_attention_shapes, flash_attention, make_qkv_example, naive_attention,
+        naive_attention_causal, scaled_dot_product_attention,
     };
 
     #[test]
@@ -518,10 +543,7 @@ mod tests {
             4,
             3,
             vec![
-                0.3, 0.2, -0.1,
-                0.5, -0.2, 0.1,
-                -0.4, 0.7, 0.2,
-                0.9, -0.3, 0.4,
+                0.3, 0.2, -0.1, 0.5, -0.2, 0.1, -0.4, 0.7, 0.2, 0.9, -0.3, 0.4,
             ],
         );
         let k = Tensor4::from_vec(
@@ -530,10 +552,7 @@ mod tests {
             4,
             3,
             vec![
-                0.1, 0.5, 0.2,
-                -0.3, 0.2, 0.8,
-                0.7, -0.4, 0.1,
-                -0.2, 0.6, 0.3,
+                0.1, 0.5, 0.2, -0.3, 0.2, 0.8, 0.7, -0.4, 0.1, -0.2, 0.6, 0.3,
             ],
         );
         let v = Tensor4::from_vec(
@@ -542,10 +561,7 @@ mod tests {
             4,
             3,
             vec![
-                1.0, 0.0, 0.5,
-                -1.0, 0.5, 0.2,
-                0.3, 1.0, -0.2,
-                0.7, -0.4, 0.9,
+                1.0, 0.0, 0.5, -1.0, 0.5, 0.2, 0.3, 1.0, -0.2, 0.7, -0.4, 0.9,
             ],
         );
 
@@ -580,27 +596,9 @@ mod tests {
 
     #[test]
     fn causal_attention_matches_reference() {
-        let q = Tensor4::from_vec(
-            1,
-            1,
-            3,
-            2,
-            vec![1.0, 0.0, 0.5, 1.0, -0.5, 0.25],
-        );
-        let k = Tensor4::from_vec(
-            1,
-            1,
-            3,
-            2,
-            vec![0.5, 0.2, -0.1, 0.8, 0.2, -0.4],
-        );
-        let v = Tensor4::from_vec(
-            1,
-            1,
-            3,
-            2,
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        );
+        let q = Tensor4::from_vec(1, 1, 3, 2, vec![1.0, 0.0, 0.5, 1.0, -0.5, 0.25]);
+        let k = Tensor4::from_vec(1, 1, 3, 2, vec![0.5, 0.2, -0.1, 0.8, 0.2, -0.4]);
+        let v = Tensor4::from_vec(1, 1, 3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
 
         let actual = scaled_dot_product_attention(&q, &k, &v, None, true, 2);
         let expected = naive_attention_causal(&q, &k, &v);
@@ -622,7 +620,12 @@ mod tests {
 
         assert_eq!(results.len(), shapes.len());
         for r in results {
-            assert!(r.passed, "shape {:?} failed: max_abs_error={}", (r.batch, r.heads, r.seq, r.dim), r.max_abs_error);
+            assert!(
+                r.passed,
+                "shape {:?} failed: max_abs_error={}",
+                (r.batch, r.heads, r.seq, r.dim),
+                r.max_abs_error
+            );
         }
     }
 }

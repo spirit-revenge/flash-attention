@@ -1,0 +1,13 @@
+timestamp_unix=1794822214
+mode=full
+available_threads=10
+rustc=rustc 1.99.0 (b940084d7 2026-09-28)
+gpu_name=Apple M4
+gpu_unified_memory=true
+gpu_max_threadgroup_memory=32768
+gpu_max_threads_per_threadgroup=1024
+gpu_max_buffer_length=9534832640
+gpu_recommended_max_working_set=12713115648
+gpu_startup_ms=30.0751
+gpu_compiled_dims=[(32, 46.266334), (64, 71.652334), (128, 40.8965)]
+note=Apple M4 in a fanless MacBook Air; GPU numbers are medians of short bursts, expect thermal variance

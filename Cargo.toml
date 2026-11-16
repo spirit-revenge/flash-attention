@@ -2,9 +2,11 @@
 # crate 名称。
 name = "flash-attention"
 # 当前版本号。
-version = "0.1.0"
+version = "0.2.0"
 # Rust edition。这里使用 2024 语法和标准库行为。
 edition = "2024"
+# `cargo run` 默认运行 demo，而不是 compare 实验。
+default-run = "flash-attention"
 
 [lib]
 # Python 扩展模块导出时使用的模块名。
@@ -19,8 +21,33 @@ crate-type = ["cdylib", "rlib"]
 # 从而避免普通 Rust 测试和开发构建强制依赖 Python 运行时。
 pyo3 = { version = "0.22.6", features = ["extension-module"], optional = true }
 
+# Metal 只在 macOS 上可用；Metal GPU 后端通过 `--features metal` 启用。
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.33.0", optional = true }
+# Metal command buffers are autoreleased; a pool keeps long benchmark loops
+# from accumulating them.
+objc = { version = "0.2.7", optional = true }
+
 [features]
-# 默认不启用 Python 绑定，保证普通 Rust 构建轻量。
+# 默认不启用 Python/Metal 绑定，保证普通 Rust 构建轻量、跨平台。
 default = []
 # 启用 Python 扩展构建时，打开 PyO3 依赖。
 python = ["dep:pyo3"]
+# 启用 macOS Metal GPU 后端。
+metal = ["dep:metal", "dep:objc"]
+
+[[bin]]
+name = "flash-attention"
+path = "src/main.rs"
+
+[[bin]]
+name = "compare"
+path = "src/bin/compare.rs"
+# 对比实验需要 GPU 后端。
+required-features = ["metal"]
+
+[profile.release]
+opt-level = 3
+# 内联跨 crate 优化对 CPU 点积/分块循环影响明显。
+lto = "thin"
+codegen-units = 1
