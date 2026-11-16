@@ -13,7 +13,7 @@
 
 ## 0. 结论速览（TL;DR）
 
-测试环境：**MacBook Air（Apple M4，10 核 CPU = 4P+6E，10 核 GPU，16 GB 统一内存，macOS 26.6.2，Metal 4，Rust 1.99）**，B=1、H=8、D=64、非 causal（除特别注明外）。
+软硬件环境：**MacBook Air（Mac16,12），Apple M4（10 核 CPU = 4P+6E，10 核 GPU），16 GB 统一内存，macOS 26.6.2，Metal 4，Rust 1.99**；B=1、H=8、D=64、非 causal（除特别注明外）。完整配置见 1.2 节。
 
 | 结论 | 数据 |
 |---|---|
@@ -48,17 +48,25 @@
 > CPU 原版与优化版都保留，是为了把“算法优化带来的提升”和“硬件带来的提升”分开：
 > 原版单线程 → 缓存版单线程约 **1.4×**，缓存版 → 10 线程约 **4.5×**，10 线程 → GPU 约 **11×**（S=1024）。
 
-### 1.2 硬件与软件环境
+### 1.2 软硬件环境
 
-| 项目 | 值 |
+以下所有数字都在同一台机器、同一系统与工具链下测得。换机器、系统版本或散热条件都会改变绝对数字；请结合第 1.3 节的噪声说明阅读。
+
+| 维度 | 配置 |
 |---|---|
-| 机型 | MacBook Air (Mac16,12)，**无风扇** |
-| SoC | Apple M4，10 核 CPU（4 性能 + 6 能效），10 核 GPU |
-| 内存 | 16 GB 统一内存（LPDDR5X） |
-| GPU 框架 | Metal 4，`maxThreadgroupMemoryLength = 32 768 B`，`maxBufferLength ≈ 8.88 GiB` |
-| 系统 | macOS 26.6.2 |
-| 工具链 | rustc 1.99.0，Rust edition 2024 |
-| 依赖 | CPU：零依赖；GPU：`metal 0.33` + `objc 0.2` |
+| 机型 | MacBook Air（Mac16,12），**无风扇**，测试时 AC 供电 |
+| SoC | Apple M4 |
+| CPU | 10 核：4 性能核 + 6 能效核，arm64 |
+| GPU | 10 核 Apple GPU，Metal 4 |
+| 内存 | 16 GB 统一内存 |
+| 系统 | macOS 26.6.2（build 25G83），Darwin 25.6.0 |
+| Metal 工具链 | Xcode 27.2（27B52）；MSL 在运行时编译 |
+| GPU 限制 | threadgroup 32 KiB；1024 threads/group；maxBuffer 8.88 GiB；recommended working set 11.84 GiB |
+| Rust | rustc 1.99.0（b940084d7），cargo 1.99.0，edition 2024 |
+| 依赖 | CPU：零依赖；GPU：`metal 0.33.0` + `objc 0.2.7`；Python：`pyo3 0.22.6`（可选） |
+| Python / 绘图 | Python 3.13.7，matplotlib 3.11.2，numpy 2.5.5，pandas 3.1.1（用于生成图表，不参与计时） |
+| 基准日期 / 版本 | 2026-11-16（Asia/Seoul）；git `6afd08f` |
+| 散热说明 | 无风扇；GPU 与显示共享；GPU 数据为短突发中位数（见 1.3） |
 
 ### 1.3 测量协议与注意事项
 

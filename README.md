@@ -136,7 +136,18 @@ print(np.asarray(out).shape)  # (2, 3, 5, 4)
 
 ## Performance summary
 
-MacBook Air (Apple M4, 10-core CPU + 10-core GPU, 16 GB unified memory, fanless), B=1, H=8, D=64, non-causal:
+### Test environment
+
+| Item | Configuration |
+|---|---|
+| Machine / cooling | MacBook Air (Mac16,12), Apple M4, fanless, AC power |
+| CPU / GPU | 10-core CPU (4P + 6E) / 10-core GPU, Metal 4 |
+| Memory / OS | 16 GB unified memory / macOS 26.6.2 (25G83) |
+| Toolchain | Rust 1.99.0 (edition 2024), cargo 1.99.0, Xcode 27.2 |
+| GPU dependencies | `metal 0.33` + `objc 0.2` |
+| Workload | B=1, H=8, D=64, non-causal (unless noted) |
+
+All numbers below were collected in this environment; GPU timings are medians of short bursts. See sections 1.2–1.3 of [GPU_COMPARISON.md](GPU_COMPARISON.md) for details.
 
 | Sequence | CPU naive 1T | CPU flash 1T | CPU 10T | **GPU flash** | GPU naive |
 |---:|---:|---:|---:|---:|---:|

@@ -9,7 +9,10 @@ compare`) and writes results/charts/*.png plus results/tables.md.
 """
 from __future__ import annotations
 
+import datetime
 import os
+import platform
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -571,21 +574,122 @@ def startup_table(startup):
     return md_table(headers, rows)
 
 
+def _sh(*cmd):
+    """Run a small read-only system command, returning stdout or ''."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+
+def environment_rows(meta):
+    """Collect the machine/software environment for the generated tables.
+
+    These values are read from the host running the report, so regenerating
+    tables on another machine automatically documents that machine.
+    """
+    is_mac = platform.system() == "Darwin"
+    model = _sh("sysctl", "-n", "hw.model") if is_mac else platform.machine()
+    cpu = _sh("sysctl", "-n", "machdep.cpu.brand_string") if is_mac else platform.processor()
+    perf = _sh("sysctl", "-n", "hw.perflevel0.logicalcpu") if is_mac else ""
+    eff = _sh("sysctl", "-n", "hw.perflevel1.logicalcpu") if is_mac else ""
+    if perf and eff:
+        cpu = f"{cpu}, {int(perf) + int(eff)} cores ({perf}P + {eff}E)"
+
+    mem_bytes = _sh("sysctl", "-n", "hw.memsize") if is_mac else ""
+    memory = f"{int(mem_bytes) / (1 << 30):.1f} GiB" if mem_bytes.isdigit() else "?"
+
+    if is_mac:
+        version = _sh("sw_vers", "-productVersion")
+        build = _sh("sw_vers", "-buildVersion")
+        os_desc = f"macOS {version} ({build}), kernel {platform.release()}"
+    else:
+        os_desc = platform.platform()
+
+    xcode_lines = _sh("xcodebuild", "-version").splitlines() if is_mac else []
+    if xcode_lines:
+        xcode_ver = xcode_lines[0].strip().removeprefix("Xcode ").strip()
+        xcode_build = (
+            xcode_lines[1].strip().removeprefix("Build version ").strip()
+            if len(xcode_lines) > 1
+            else ""
+        )
+        xcode = f"Xcode {xcode_ver} ({xcode_build})" if xcode_build else f"Xcode {xcode_ver}"
+    else:
+        xcode = "not found"
+
+    ps = _sh("pmset", "-g", "ps").splitlines() if is_mac else []
+    if any("AC Power" in line for line in ps):
+        power = "AC power"
+    elif ps:
+        power = "battery"
+    else:
+        power = "unknown"
+
+    timestamp = meta.get("timestamp_unix", "")
+    if timestamp.isdigit():
+        date = datetime.datetime.fromtimestamp(int(timestamp)).astimezone().strftime(
+            "%Y-%m-%d %H:%M %Z"
+        )
+    else:
+        date = "?"
+
+    tgmem = meta.get("gpu_max_threadgroup_memory", "?")
+    threads = meta.get("gpu_max_threads_per_threadgroup", "?")
+    max_buffer = int(meta.get("gpu_max_buffer_length", 0))
+    working_set = int(meta.get("gpu_recommended_max_working_set", 0))
+
+    cargo = _sh("cargo", "--version") or "?"
+    unified = meta.get("gpu_unified_memory", "?").lower() in ("true", "1")
+    gpu_desc = (
+        f"{meta.get('gpu_name', '?')} (Metal, unified memory: "
+        f"{'yes' if unified else 'no'})"
+    )
+    return [
+        ["Machine", f"{model} ({platform.machine()})"],
+        ["CPU", cpu],
+        ["GPU", gpu_desc],
+        ["Memory", memory],
+        ["OS", os_desc],
+        ["Xcode / Metal toolchain", xcode],
+        [
+            "GPU limits",
+            f"{tgmem} B threadgroup, {threads} threads/group, "
+            f"{max_buffer / (1 << 30):.2f} GiB max buffer, "
+            f"{working_set / (1 << 30):.2f} GiB recommended working set",
+        ],
+        ["Rust / Cargo", f"{meta.get('rustc', '?')}; {cargo}"],
+        ["CPU threads", meta.get("available_threads", "?")],
+        ["Power / cooling", f"{power}, fanless"],
+        [
+            "Benchmark",
+            f"{meta.get('mode', '?')} run at {date} "
+            f"(GPU values are medians of short bursts)",
+        ],
+        [
+            "Python / charts",
+            f"{platform.python_version()}, matplotlib {matplotlib.__version__}, "
+            f"numpy {np.__version__}, pandas {pd.__version__}",
+        ],
+    ]
+
+
 def write_tables(df, threads, blocks, transfer, startup):
     parts = ["# Generated comparison tables", ""]
     meta = {}
     for line in (RES / "meta.txt").read_text().splitlines():
         key, _, value = line.partition("=")
         meta[key] = value
-    env_rows = [
-        ["GPU", meta.get("gpu_name", "?")],
-        ["GPU unified memory", meta.get("gpu_unified_memory", "?")],
-        ["threadgroup memory", meta.get("gpu_max_threadgroup_memory", "?") + " bytes"],
-        ["max buffer", f"{int(meta.get('gpu_max_buffer_length', 0)) / (1 << 30):.2f} GiB"],
-        ["CPU threads", meta.get("available_threads", "?")],
-        ["Rust", meta.get("rustc", "?")],
+    parts += [
+        "## Environment",
+        "",
+        "All measurements in this file come from the machine below; absolute "
+        "timings are machine-specific.",
+        "",
+        md_table(["item", "value"], environment_rows(meta)),
+        "",
     ]
-    parts += ["## Environment", "", md_table(["item", "value"], env_rows), ""]
     parts += ["## Startup and one-time costs", "", startup_table(startup), ""]
 
     parts += ["## Sequence-length scaling, D=64, B*H=8 (non-causal)", "",

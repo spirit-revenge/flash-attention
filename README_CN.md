@@ -141,7 +141,18 @@ print(np.asarray(out).shape)  # (2, 3, 5, 4)
 
 ## 性能摘要
 
-测试环境：MacBook Air（Apple M4，10 核 CPU + 10 核 GPU，16 GB 统一内存，无风扇），B=1、H=8、D=64、非 causal：
+### 软硬件环境
+
+| 项目 | 配置 |
+|---|---|
+| 机型 / 散热 | MacBook Air (Mac16,12)，Apple M4，无风扇，测试时 AC 供电 |
+| CPU / GPU | 10 核 CPU（4 性能 + 6 能效）/ 10 核 GPU，Metal 4 |
+| 内存 / 系统 | 16 GB 统一内存 / macOS 26.6.2 (25G83) |
+| 工具链 | Rust 1.99.0（edition 2024），cargo 1.99.0，Xcode 27.2 |
+| GPU 依赖 | `metal 0.33` + `objc 0.2` |
+| 测试形状 | B=1、H=8、D=64、非 causal（除特别注明） |
+
+以下数据在同一环境下测得；GPU 为短突发中位数，详见 [GPU_COMPARISON.md](GPU_COMPARISON.md) 的 1.2–1.3 节：
 
 | 序列长度 | CPU naive 1T | CPU flash 1T | CPU 10 线程 | **GPU flash** | GPU naive |
 |---:|---:|---:|---:|---:|---:|

@@ -16,9 +16,17 @@ the short English version. Raw data lives in `results/`, charts in
 
 ## Environment
 
-Apple M4 MacBook Air (fanless), 10-core CPU (4P + 6E), 10-core GPU, 16 GB unified
-memory, macOS 26.6.2, Metal 4, rustc 1.99, Rust 2024. CPU path has zero
-dependencies; GPU path uses `metal 0.33` + `objc 0.2`.
+All numbers below were collected on this machine; absolute timings are
+machine-specific.
+
+| Item | Configuration |
+|---|---|
+| Machine | MacBook Air (Mac16,12), fanless, AC power |
+| SoC / CPU / GPU | Apple M4, 10-core CPU (4P + 6E), 10-core GPU, Metal 4 |
+| Memory / OS | 16 GB unified memory / macOS 26.6.2 (25G83), Darwin 25.6.0 |
+| Toolchain | rustc 1.99.0 (edition 2024), cargo 1.99.0, Xcode 27.2 (27B52) |
+| Dependencies | CPU: zero; GPU: `metal 0.33` + `objc 0.2`; Python: `pyo3 0.22.6` (optional) |
+| Benchmark workload | B=1, H=8, D=64, non-causal unless noted |
 
 ## Headline results
 

@@ -3,3 +3,5 @@
 /.cargo-home
 /.venv
 /.matplotlib-cache
+__pycache__/
+*.pyc

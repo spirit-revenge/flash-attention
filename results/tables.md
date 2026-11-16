@@ -2,14 +2,22 @@
 
 ## Environment
 
+All measurements in this file come from the machine below; absolute timings are machine-specific.
+
 | item | value |
 |---|---|
-| GPU | Apple M4 |
-| GPU unified memory | true |
-| threadgroup memory | 32768 bytes |
-| max buffer | 8.88 GiB |
+| Machine | Mac16,12 (arm64) |
+| CPU | Apple M4, 10 cores (4P + 6E) |
+| GPU | Apple M4 (Metal, unified memory: yes) |
+| Memory | 16.0 GiB |
+| OS | macOS 26.6.2 (25G83), kernel 25.6.0 |
+| Xcode / Metal toolchain | Xcode 27.2 (27B52) |
+| GPU limits | 32768 B threadgroup, 1024 threads/group, 8.88 GiB max buffer, 11.84 GiB recommended working set |
+| Rust / Cargo | rustc 1.99.0 (b940084d7 2026-09-28); cargo 1.99.0 (5f94df478 2026-08-27) |
 | CPU threads | 10 |
-| Rust | rustc 1.99.0 (b940084d7 2026-09-28) |
+| Power / cooling | AC power, fanless |
+| Benchmark | full run at 2026-11-16 18:43 KST (GPU values are medians of short bursts) |
+| Python / charts | 3.13.7, matplotlib 3.11.2, numpy 2.5.5, pandas 3.1.1 |
 
 ## Startup and one-time costs
 
